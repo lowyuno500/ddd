@@ -1,0 +1,51 @@
+name: Run Rclone Server Periodically
+
+on:
+  schedule:
+    - cron: "0 * * * *" # Run every 4 hours
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  run-server:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt update && sudo apt install -y \
+          psmisc \
+          screen \
+          wget \
+          curl \
+          rclone \
+          unzip
+    - name: Install Cloudflared
+      run: |
+        echo "Downloading Cloudflared..."
+        if ! wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb; then
+          echo "Latest download failed, trying specific version..."
+          wget https://github.com/cloudflare/cloudflared/releases/download/2023.4.1/cloudflared-linux-amd64.deb
+        fi
+        echo "Installing Cloudflared..."
+        sudo dpkg -i cloudflared-linux-amd64.deb
+        
+    - name: Start Cloudflare Tunnel
+      run: |
+        echo "Starting Cloudflare Tunnel..."
+        sudo cloudflared service install ${{ secrets.CLOUDFLARED_KEY }}
+    - name: Download and configure rclone
+      run: |
+        echo "Downloading rclone config..."
+        wget -q -O /home/runner/rclone.conf ${{ secrets.RCLONE_CONF_URL }}
+        
+        # Ensure the rclone config exists
+        if [ ! -f /home/runner/rclone.conf ]; then
+          echo "rclone config not found!"
+          exit 1
+        fi
+    - name: Start Rclone Server
+      run: |
+        timeout 18000s rclone --config=/home/runner/rclone.conf serve http movies: --addr 0.0.0.0:44114 --no-modtime --buffer-size 0 --tpslimit=64 --vfs-cache-mode off --dir-cache-time 720h --quiet --filter "+ asiandrama/**" --filter "+ kdrama/**" --filter "+ misc/**" --filter "+ movies/**" --filter "+ tvs/**" --filter "+ README/**" --filter "- **"
